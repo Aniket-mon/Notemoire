@@ -1,74 +1,112 @@
+require('dotenv').config();
+
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
 const User = require('../modules/USER');
 
-// Secret should be stored in .env
-const JWT_SECRET = 'Iamagoodboy$';
+const JWT_SECRET = process.env.JWT_SECRET;
 
-// Route: POST /api/auth/wallet-login
+// POST /api/auth/wallet-login
 router.post('/wallet-login', async (req, res) => {
     let success = false;
-    const {
-        walletAddress,
-        name,
-        profilePicture,
-        bannerImage,
-        bio,
-        role,
-        location,
-        website
-    } = req.body;
-
-    // Basic validation
-    if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
-        return res.status(400).json({ success, error: 'Invalid wallet address' });
-    }
 
     try {
-        let user = await User.findOne({ walletAddress: walletAddress.toLowerCase() });
 
-        if (!user) {
-            // Register new user with profile info
-            user = await User.create({
-                walletAddress: walletAddress.toLowerCase(),
-                name: name || "Anonymous",
-                profilePicture: profilePicture || "",
-                bannerImage: bannerImage || "",
-                bio: bio || "",
-                role: role || "student",
-                location: location || "",
-                website: website || ""
+        const {
+            walletAddress,
+            name,
+            profilePicture,
+            bannerImage,
+            bio,
+            role,
+            location,
+            website
+        } = req.body;
+
+        // Validate wallet address
+        if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+            return res.status(400).json({
+                success,
+                error: "Invalid wallet address"
             });
-        } else {
-            // Update profile if info is provided
-            if (name || profilePicture || bannerImage || bio || role || location || website) {
-                user.name = name || user.name;
-                user.profilePicture = profilePicture || user.profilePicture;
-                user.bannerImage = bannerImage || user.bannerImage;
-                user.bio = bio || user.bio;
-                user.role = role || user.role;
-                user.location = location || user.location;
-                user.website = website || user.website;
-                await user.save();
-            }
         }
 
-        // JWT creation
-        const data = { user: { id: user._id } };
-        const authToken = jwt.sign(data, JWT_SECRET);
+        const normalizedAddress = walletAddress.toLowerCase();
 
-        // Always include all expected fields for frontend
+        // Find existing user
+        let user = await User.findOne({ walletAddress: normalizedAddress });
+
+        if (!user) {
+
+            // Create new user
+            user = await User.create({
+                walletAddress: normalizedAddress,
+                name: name?.trim() || "Anonymous",
+                profilePicture: profilePicture || "",
+                bannerImage: bannerImage || "",
+                bio: bio?.trim() || "",
+                role: role || "student",
+                location: location?.trim() || "",
+                website: website?.trim() || ""
+            });
+
+        } else {
+
+            // Update profile if fields provided
+            if (name) user.name = name.trim();
+            if (profilePicture) user.profilePicture = profilePicture;
+            if (bannerImage) user.bannerImage = bannerImage;
+            if (bio) user.bio = bio.trim();
+            if (role) user.role = role;
+            if (location) user.location = location.trim();
+            if (website) user.website = website.trim();
+
+            await user.save();
+        }
+
+        // Create JWT payload
+        const payload = {
+            user: {
+                id: user._id
+            }
+        };
+
+        // Generate token with expiration
+        const authToken = jwt.sign(payload, JWT_SECRET, {
+            expiresIn: "2h"
+        });
+
+        // Return safe user object
         const userResponse = {
-            ...user._doc,
-            address: user.walletAddress // For frontend compatibility
+            id: user._id,
+            walletAddress: user.walletAddress,
+            address: user.walletAddress,
+            name: user.name,
+            profilePicture: user.profilePicture,
+            bannerImage: user.bannerImage,
+            bio: user.bio,
+            role: user.role,
+            location: user.location,
+            website: user.website
         };
 
         success = true;
-        res.json({ success, authToken, user: userResponse });
+
+        res.json({
+            success,
+            authToken,
+            user: userResponse
+        });
+
     } catch (error) {
-        console.error(error.message);
-        res.status(500).json({ success, error: 'Internal server error' });
+
+        console.error("Wallet login error:", error);
+
+        res.status(500).json({
+            success,
+            error: "Internal server error"
+        });
     }
 });
 
