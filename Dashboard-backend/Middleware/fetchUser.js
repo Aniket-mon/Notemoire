@@ -1,43 +1,75 @@
+require('dotenv').config();
 const jwt = require('jsonwebtoken');
 
-// You can also move this to a separate config file or .env
-const JWT_SECRET = 'Iamagoodboy$';
+const JWT_SECRET = process.env.JWT_SECRET;
 
-// Middleware function to fetch user from JWT token
+// Middleware to authenticate users via JWT
 const fetchUser = (req, res, next) => {
-    // Get the token from the request header
-    // Add the header auth-token and its value will be the token you get on logging in via thunderclient 
-    const token = req.header('auth-token');
-    if (!token) {
-        return res.status(401).send({ error: "Please authenticate using a valid token" });
-    }
-
     try {
-        // Verify the token using JWT_SECRET
-        // 'data' will store the payload that was used while signing the token
-        // Example payload: { user: { id: "some_user_id" }, iat: timestamp }
-        // OR for Web3 users: { walletAddress: "0xabc123..." }
 
-        const data = jwt.verify(token, JWT_SECRET);
+        // Get token from header
+        const token = req.header('auth-token');
 
-        // 'data.user' contains the user info (e.g., user ID)
-        // For Web2 login
-        if (data.user && data.user.id) {
-            req.user = { id: data.user.id };
+        if (!token) {
+            return res.status(401).json({
+                error: "Authentication required. No token provided."
+            });
         }
-        // For Web3 login
-        else if (data.walletAddress) {
-            req.user = { walletAddress: data.walletAddress.toLowerCase() };
-        } 
-        // If neither exists
+
+        // Basic token format validation (JWT has 3 parts)
+        if (token.split('.').length !== 3) {
+            return res.status(401).json({
+                error: "Malformed token"
+            });
+        }
+
+        // Verify token
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Web2 login
+        if (decoded.user && decoded.user.id) {
+            req.user = {
+                id: decoded.user.id
+            };
+        }
+
+        // Web3 wallet login
+        else if (decoded.walletAddress) {
+            req.user = {
+                walletAddress: decoded.walletAddress.toLowerCase()
+            };
+        }
+
         else {
-            return res.status(401).send({ error: "Invalid token payload" });
+            return res.status(401).json({
+                error: "Invalid token payload"
+            });
         }
 
-        // Proceed to the next middleware/route handler
         next();
+
     } catch (error) {
-        return res.status(401).send({ error: "Invalid token" });
+
+        // Token expired
+        if (error.name === "TokenExpiredError") {
+            return res.status(401).json({
+                error: "Token expired. Please login again."
+            });
+        }
+
+        // Invalid signature
+        if (error.name === "JsonWebTokenError") {
+            return res.status(401).json({
+                error: "Invalid token"
+            });
+        }
+
+        // Unknown error
+        console.error("JWT Middleware Error:", error);
+
+        return res.status(500).json({
+            error: "Authentication verification failed"
+        });
     }
 };
 
